@@ -1,0 +1,6 @@
+pydantic
+fastapi
+uvicorn
+motor
+pytest
+pytest-asyncio

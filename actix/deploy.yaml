@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sisyphus-actix
+spec:
+  selector:
+    matchLabels:
+      run: sisyphus-actix
+  template:
+    metadata:
+      labels:
+        run: sisyphus-actix
+    spec:
+      containers:
+      - name: sisyphus-actix
+        image: oleksandran/sisyphus-actix:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        args:
+          - '--host'
+          - '0.0.0.0'
+          - '--port'
+          - '8080'
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1Gi
+          requests:
+            cpu: 50m
+            memory: 50Mi
+        env:
+        - name: RUST_LOG
+          value: info
+        - name: MONGODB_URI
+          valueFrom:
+            secretKeyRef:
+              name: mongo-creds
+              key: MONGO_URI
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sisyphus-actix
+  labels:
+    run: sisyphus-actix
+spec:
+  ports:
+  - port: 80
+    targetPort: http
+  selector:
+    run: sisyphus-actix

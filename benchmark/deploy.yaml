@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sisyphus-fastapi-bench
+spec:
+  selector:
+    matchLabels:
+      run: sisyphus-fastapi-bench
+  template:
+    metadata:
+      labels:
+        run: sisyphus-fastapi-bench
+    spec:
+      containers:
+      - name: bench
+        image: oleksandran/sisyphus-bench:latest
+        imagePullPolicy: Always
+        resources:
+          limits:
+            cpu: 500m
+            memory: 202Mi
+        env:
+        - name: API_URL
+          value: http://sisyphus-fastapi:80
+        - name: CONCURRENT_REQUESTS
+          value: "1000"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sisyphus-actix-bench
+spec:
+  selector:
+    matchLabels:
+      run: sisyphus-actix-bench
+  template:
+    metadata:
+      labels:
+        run: sisyphus-actix-bench
+    spec:
+      containers:
+      - name: bench
+        image: oleksandran/sisyphus-bench:latest
+        imagePullPolicy: Always
+        resources:
+          limits:
+            cpu: 500m
+            memory: 202Mi
+        env:
+        - name: API_URL
+          value: http://sisyphus-actix:80
+        - name: CONCURRENT_REQUESTS
+          value: "1000"
