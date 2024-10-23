@@ -7,34 +7,54 @@ use futures::stream::StreamExt;
 use mongodb::bson::Uuid;
 use mongodb::{bson::doc, Client, Collection};
 use tokio::time::{sleep, Duration};
+use tracing::{debug, info};
+use rand::{Rng, SeedableRng};
+use rand::rngs::StdRng;
 
 const DEFAULT_MEMORY_USAGE: usize = 1024 * 1024;
 
-async fn cpu_bound_task(duration_millis: u64) {
+async fn cpu_bound_task(duration_millis: u64) -> u64 {
     let end = std::time::Instant::now() + Duration::from_millis(duration_millis);
+    let mut result = 0;
     while std::time::Instant::now() < end {
-        let _ = (2..10_000)
+        result = (2..10_000)
             .filter(|n| (2..(*n as f64).sqrt() as u64 + 1).all(|i| n % i != 0))
-            .collect::<Vec<_>>();
+            .collect::<Vec<_>>()
+            .iter()
+            .sum();
     }
+    result
 }
 
-async fn memory_bound_task(memory_usage: usize, duration_millis: u64) {
-    let _memory_hog = vec![0u8; memory_usage];
+async fn memory_bound_task(memory_usage: usize, duration_millis: u64) -> u64 {
+    let mut memory_hog = vec![0u8; memory_usage];
+
+    let mut rng = StdRng::from_entropy();
+    for byte in memory_hog.iter_mut() {
+        *byte = rng.gen();  // Fill with a random u8 value
+    }
+
     sleep(Duration::from_millis(duration_millis)).await;
+
+    let result: u64 = memory_hog.iter().map(|&x| x as u64).sum();
+    result
 }
 
-async fn io_bound_task(duration_millis: u64) {
+async fn io_bound_task(duration_millis: u64) -> u64 {
     sleep(Duration::from_millis(duration_millis)).await;
+    let mut rng = StdRng::from_entropy();
+    rng.gen()
 }
 
-async fn execute_task(task: Task, client: Client) -> mongodb::error::Result<()> {
+async fn execute_task(mut task: Task, client: Client) -> mongodb::error::Result<Task> {
     let collection: Collection<Task> = client.database(DB_NAME).collection(TASKS_COLL_NAME);
 
-    let mut task = task;
+    info!("Start executing task {}: {}", task.id, task.ty);
     let started_at = chrono::Utc::now();
     task.started_at = Some(started_at);
     task.status = TaskStatus::Running;
+
+    debug!("Update started task {:?} in database", task);
     collection
         .update_one(
             doc! { "id": &task.id },
@@ -47,7 +67,7 @@ async fn execute_task(task: Task, client: Client) -> mongodb::error::Result<()> 
         .await
         .expect("Error updating task");
 
-    match task.ty {
+    let result = match task.ty {
         TaskType::Cpu => cpu_bound_task(task.params.duration_millis).await,
         TaskType::Memory => {
             memory_bound_task(
@@ -62,6 +82,9 @@ async fn execute_task(task: Task, client: Client) -> mongodb::error::Result<()> 
     let finished_at = chrono::Utc::now();
     task.finished_at = Some(finished_at);
     task.status = TaskStatus::Finished;
+    task.result = Some(result);
+
+    debug!("Update finished task {:?} in database", task);
     collection
         .update_one(
             doc! { "id": &task.id },
@@ -73,7 +96,8 @@ async fn execute_task(task: Task, client: Client) -> mongodb::error::Result<()> 
         )
         .await?;
 
-    Ok(())
+    info!("Finish executing task {}: {}", task.id, task.ty);
+    Ok(task)
 }
 
 #[utoipa::path(
@@ -97,26 +121,30 @@ async fn submit(
         submitted_at: chrono::Utc::now(),
         started_at: None,
         finished_at: None,
+        result: None,
     };
 
+    debug!("Store new taks in database: {}", task.id);
     if let Err(err) = collection.insert_one(&task, None).await {
         return HttpResponse::InternalServerError().body(err.to_string());
     }
 
     if task.blocking {
-        if let Err(err) = execute_task(task.clone(), client.get_ref().clone()).await {
-            return HttpResponse::InternalServerError().body(err.to_string());
+        debug!("Execute blocking taks: {}", task.id);
+        match execute_task(task, client.get_ref().clone()).await {
+            Ok(task) => HttpResponse::Ok().json(task),
+            Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
         }
     } else {
-        let task = task.clone();
+        debug!("Spawn non-blocking taks: {}", task.id);
+        let sent_task = task.clone();
         tokio::spawn(async move {
-            if let Err(err) = execute_task(task, client.get_ref().clone()).await {
+            if let Err(err) = execute_task(sent_task, client.get_ref().clone()).await {
                 eprintln!("Error executing task: {}", err);
             }
         });
+        HttpResponse::Ok().json(task)
     }
-
-    HttpResponse::Ok().json(task)
 }
 
 #[utoipa::path(

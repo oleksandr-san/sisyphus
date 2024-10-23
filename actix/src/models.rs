@@ -10,14 +10,14 @@ pub struct User {
     pub email: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, strum_macros::Display, ToSchema)]
+#[derive(Serialize, Deserialize, Clone, strum_macros::Display, ToSchema, Debug)]
 pub enum TaskType {
     Cpu,
     Memory,
     Io,
 }
 
-#[derive(Serialize, Deserialize, Clone, ToSchema)]
+#[derive(Serialize, Deserialize, Clone, ToSchema, Debug)]
 pub struct TaskParams {
     pub duration_millis: u64,
     pub memory_usage: Option<usize>,
@@ -30,7 +30,7 @@ pub enum TaskStatus {
     Finished,
 }
 
-#[derive(Serialize, Deserialize, Clone, ToSchema)]
+#[derive(Serialize, Deserialize, Clone, ToSchema, Debug)]
 pub struct Task {
     pub id: String,
     #[serde(rename = "type")]
@@ -41,6 +41,7 @@ pub struct Task {
     pub submitted_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
+    pub result: Option<u64>,
 }
 
 impl Task {
